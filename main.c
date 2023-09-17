@@ -42,6 +42,15 @@
 #endif
 #include "discover.h"
 
+#define MAIN_MENUTYPE	0
+#define KEYBOARD_MENUTYPE	1
+#define POWEROFF_MENUTYPE	2
+
+struct userstate {
+	int isnomute; // if we don't have VolumeMute, we can similuate mute
+	int menutype;
+};
+SCLEARFUNC(userstate);
 
 static int isverbose_global;
 
@@ -92,6 +101,7 @@ fputs("\tconnect to serial number: rokuremote sn:SERIALNUMBER\n",fout);
 fputs("\tconnect to ip: rokuremote ip:IPADDRESS[:port]\n",fout);
 fputs("\tsend keypress: rokuremote --keypress_XXX --keypress_YYY\n",fout);
 fputs("\tdon't run interactively: rokuremote --keypress_XXX --quit\n",fout);
+fputs("\tsimulate mute for streaming devices: --nomute\n",fout);
 fputs("\tprint operations: --verbose\n",fout);
 return 0;
 }
@@ -130,100 +140,144 @@ error:
 	return -1;
 }
 
-static int printmenu(int iskeyboard) {
-if (iskeyboard) {
-	fprintf(stdout,"Roku remote, keyboard mode:\n");
-	fprintf(stdout,"\t a-z,0-9,Backspace       :   send key\n");
-	fprintf(stdout,"\t Left,Right,Up,Down      :   send key and exit keyboard mode\n");
-	fprintf(stdout,"\t Tab,Esc                 :   exit keyboard mode\n");
-} else {
-	fprintf(stdout,"Roku remote, commands:\n");
-	fprintf(stdout,"\t a,1                     :   Enter keyboard mode\n");
-	fprintf(stdout,"\t Left,Right,Up,Down      :   Send key\n");
-	fprintf(stdout,"\t Backspace               :   Back\n");
-	fprintf(stdout,"\t Enter                   :   Select\n");
-	fprintf(stdout,"\t Escape                  :   Home\n");
-	fprintf(stdout,"\t Space                   :   Play/Pause\n");
-	fprintf(stdout,"\t <                       :   Reverse\n");
-	fprintf(stdout,"\t >                       :   Forward\n");
-	fprintf(stdout,"\t -,_                     :   Volume down \n");
-	fprintf(stdout,"\t +,=                     :   Volume up \n");
-	fprintf(stdout,"\t ?                       :   Search\n");
-	fprintf(stdout,"\t d                       :   Discover roku devices\n");
-	fprintf(stdout,"\t f                       :   Find remote\n");
-	fprintf(stdout,"\t i                       :   Information\n");
-	fprintf(stdout,"\t m                       :   Mute \n");
-	fprintf(stdout,"\t p                       :   Power off \n");
-	fprintf(stdout,"\t q,x                     :   Quit\n");
-	fprintf(stdout,"\t r                       :   Instant Replay\n");
+static int printmenu(struct userstate *uo) {
+switch (uo->menutype) {
+	case POWEROFF_MENUTYPE:
+		fprintf(stdout,"Roku remote, confirm power-off:\n");
+		fprintf(stdout,"\t Y                       :   Send PowerOff keypress\n");
+		fprintf(stdout,"\t anything else           :   Cancel\n");
+		break;
+	case KEYBOARD_MENUTYPE:
+		fprintf(stdout,"Roku remote, keyboard mode:\n");
+		fprintf(stdout,"\t a-z,0-9,Backspace       :   send key\n");
+		fprintf(stdout,"\t Left,Right,Up,Down      :   send key and exit keyboard mode\n");
+		fprintf(stdout,"\t Tab,Esc                 :   exit keyboard mode\n");
+		break;
+	case MAIN_MENUTYPE:
+		fprintf(stdout,"Roku remote, commands:\n");
+		fprintf(stdout,"\t a,1                     :   Enter keyboard mode\n");
+		fprintf(stdout,"\t Left,Right,Up,Down      :   Send key\n");
+		fprintf(stdout,"\t Backspace               :   Back\n");
+		fprintf(stdout,"\t Enter                   :   Select\n");
+		fprintf(stdout,"\t Escape                  :   Home\n");
+		fprintf(stdout,"\t Space                   :   Play/Pause\n");
+		fprintf(stdout,"\t <                       :   Reverse\n");
+		fprintf(stdout,"\t >                       :   Forward\n");
+		fprintf(stdout,"\t -,_                     :   Volume down \n");
+		fprintf(stdout,"\t +,=                     :   Volume up \n");
+		fprintf(stdout,"\t ?                       :   Search\n");
+		fprintf(stdout,"\t d                       :   Discover roku devices\n");
+		fprintf(stdout,"\t f                       :   Find remote\n");
+		fprintf(stdout,"\t i                       :   Information\n");
+		if (uo->isnomute) {
+			fprintf(stdout,"\t m,M                     :   Volume down/up 5 steps\n");
+		} else {
+			fprintf(stdout,"\t m                       :   Mute toggle\n");
+		}
+		fprintf(stdout,"\t p                       :   Power off \n");
+		fprintf(stdout,"\t q,x                     :   Quit\n");
+		fprintf(stdout,"\t r                       :   Instant Replay\n");
+		break;
 }
 return 0;
 }
 
-static int handlekey(int *isquit_out, int *nextkey_out, int *iskeyboard_inout, struct discover *d, int ch) {
-int iskeyboard;
+static int handlekey(int *isquit_out, int *nextkey_out, struct discover *d,
+		struct userstate *userstate, int ch) {
 int nextkey=0;
 int isquit=0;
 char *keypress=NULL;
 char buff8[8];
 
-iskeyboard=*iskeyboard_inout;
-if (iskeyboard) {
-	if ((ch>=32)&&(ch<127)) {
-		static char hexchars[]="0123456789ABCDEF";
-		unsigned char uc=ch;
-		memcpy(buff8,"LIT_%",5);
-		buff8[5]=hexchars[uc>>4];
-		buff8[6]=hexchars[uc&0xf];
-		buff8[7]=0;
-		keypress=buff8;
-	} else switch (ch) {
-		case 3: case 4: isquit=1; break;
-		case KEY_UP:
-		case KEY_DOWN:
-		case KEY_LEFT:
-		case KEY_RIGHT:
-			iskeyboard=0;
-			nextkey=ch;
-			break;
-		case '\t':
-		case 27:
-			iskeyboard=0;
-			break;
-		case '\n': case '\r': keypress="Enter"; break;
-		case 8: case 127: keypress="Backspace"; break;
-		default:
-			fprintf(stderr,"Got unknown ch: %d\r\n",ch);
-			break;
-	}
-} else {
-	switch (ch) {
-		case 3: case 4: isquit=1; break;
-		case 'a': case 'A': case '1': iskeyboard=1; break;
-		case ',': case '<': case '[': case '{': keypress="Rev"; break;
-		case '.': case '>': case ']': case '}': keypress="Fwd"; break;
-		case '/': case '?': keypress="Search"; break;
-		case 8: case 127: keypress="Back"; break;
-		case 'd': case 'D': if (start_discover(d)) GOTOERROR; break;
-		case 'f': case 'F': keypress="FindRemote"; break;
-		case '-': case '_': keypress="VolumeDown"; break;
-		case '+': case '=': keypress="VolumeUp"; break;
-		case 'm': case 'M': keypress="VolumeMute"; break;
-		case 'p': case 'P': keypress="PowerOff"; break;
-		case 'i': case 'I': keypress="Info"; break;
-		case 'q': case 'x': case 'Q': case 'X': isquit=1; break;
-		case 'r': case 'R': keypress="InstantReplay"; break;
-		case '\n': case '\r': keypress="Select"; break; // enter
-		case 27: keypress="Home"; break; // esc
-		case ' ': keypress="Play"; break;
-		case KEY_UP: keypress="Up"; break;
-		case KEY_DOWN: keypress="Down"; break;
-		case KEY_LEFT: keypress="Left"; break;
-		case KEY_RIGHT: keypress="Right"; break;
-		default:
-			fprintf(stderr,"Got unknown ch: %d\r\n",ch);
-			break;
-	}
+switch (userstate->menutype) {
+	case POWEROFF_MENUTYPE:
+		userstate->menutype=MAIN_MENUTYPE;
+		if (ch=='Y') {
+			keypress="PowerOff";
+		}
+		break;
+	case KEYBOARD_MENUTYPE:
+		if ((ch>=32)&&(ch<127)) {
+			static char hexchars[]="0123456789ABCDEF";
+			unsigned char uc=ch;
+			memcpy(buff8,"LIT_%",5);
+			buff8[5]=hexchars[uc>>4];
+			buff8[6]=hexchars[uc&0xf];
+			buff8[7]=0;
+			keypress=buff8;
+		} else switch (ch) {
+			case 3: case 4: isquit=1; break;
+			case KEY_UP:
+			case KEY_DOWN:
+			case KEY_LEFT:
+			case KEY_RIGHT:
+				userstate->menutype=MAIN_MENUTYPE;
+				nextkey=ch;
+				break;
+			case '\t':
+			case 27:
+				userstate->menutype=MAIN_MENUTYPE;
+				break;
+			case '\n': case '\r': keypress="Enter"; break;
+			case 8: case 127: keypress="Backspace"; break;
+			default:
+				fprintf(stderr,"Got unknown ch: %d\r\n",ch);
+				break;
+		}
+		break;
+	case MAIN_MENUTYPE:
+		switch (ch) {
+			case 3: case 4: isquit=1; break;
+			case 'a': case 'A': case '1': userstate->menutype=KEYBOARD_MENUTYPE; break;
+			case ',': case '<': case '[': case '{': keypress="Rev"; break;
+			case '.': case '>': case ']': case '}': keypress="Fwd"; break;
+			case '/': case '?': keypress="Search"; break;
+			case 8: case 127: keypress="Back"; break;
+			case 'd': case 'D': if (start_discover(d)) GOTOERROR; break;
+			case 'f': case 'F': keypress="FindRemote"; break;
+			case '-': case '_': keypress="VolumeDown"; break;
+			case '+': case '=': keypress="VolumeUp"; break;
+			case 'm':
+				if (!userstate->isnomute) keypress="VolumeMute";
+				else {
+					int i;
+					for (i=0;i<5;i++) {
+						if (sendkeypress(d,"VolumeDown")) {
+							fprintf(stderr,"Error sending http request\n");
+							break;
+						}
+					}
+				}
+				break;
+			case 'M':
+				if (!userstate->isnomute) keypress="VolumeMute";
+				else {
+					int i;
+					for (i=0;i<5;i++) {
+						if (sendkeypress(d,"VolumeUp")) {
+							fprintf(stderr,"Error sending http request\n");
+							break;
+						}
+					}
+				}
+				break;
+//			case 'p': case 'P': keypress="PowerOff"; break;
+			case 'p': userstate->menutype=POWEROFF_MENUTYPE; break;
+			case 'i': case 'I': keypress="Info"; break;
+			case 'q': case 'x': case 'Q': case 'X': isquit=1; break;
+			case 'r': case 'R': keypress="InstantReplay"; break;
+			case '\n': case '\r': keypress="Select"; break; // enter
+			case 27: keypress="Home"; break; // esc
+			case ' ': keypress="Play"; break;
+			case KEY_UP: keypress="Up"; break;
+			case KEY_DOWN: keypress="Down"; break;
+			case KEY_LEFT: keypress="Left"; break;
+			case KEY_RIGHT: keypress="Right"; break;
+			default:
+				fprintf(stderr,"Got unknown ch: %d\r\n",ch);
+				break;
+		}
+		break;
 }
 
 if (keypress) {
@@ -234,13 +288,13 @@ if (keypress) {
 
 *isquit_out=isquit;
 *nextkey_out=nextkey;
-*iskeyboard_inout=iskeyboard;
 return 0;
 error:
 	return -1;
 }
 
 int main(int argc, char **argv) {
+struct userstate userstate;
 struct discover discover;
 struct reply_discover reply_discover;
 struct getch getch;
@@ -248,11 +302,11 @@ uint32_t ipv4=0;
 unsigned short port;
 char *sn=NULL;
 int discovertimeout=30;
-int iskeyboard=0;
 int isprecmd=0;
 int isinteractive=1;
 
 
+clear_userstate(&userstate);
 clear_discover(&discover);
 clear_reply_discover(&reply_discover);
 clear_getch(&getch);
@@ -274,6 +328,8 @@ clear_getch(&getch);
 			}
 		} else if (!strcmp(arg,"--verbose") || !strcmp(arg,"-v")) {
 			isverbose_global=1;
+		} else if (!strcmp(arg,"--nomute")) {
+			userstate.isnomute=1;
 		} else if (!strcmp(arg,"--quit")) {
 			isinteractive=0;
 			discovertimeout=5;
@@ -338,7 +394,7 @@ if (isprecmd) {
 }
 if (isinteractive) {
 	if (init_getch(&getch,STDIN_FILENO)) GOTOERROR;
-	(ignore)printmenu(iskeyboard);
+	(ignore)printmenu(&userstate);
 
 	while (1) {
 		int ch;
@@ -368,15 +424,15 @@ if (isinteractive) {
 			fprintf(stderr,"Got ch: %d\n",ch);
 		}
 		{
-			int old_iskeyboard,isquit,nextch;
-			old_iskeyboard=iskeyboard;
-			if (handlekey(&isquit,&nextch,&iskeyboard,&discover,ch)) GOTOERROR;
+			int old_menutype,isquit,nextch;
+			old_menutype=userstate.menutype;
+			if (handlekey(&isquit,&nextch,&discover,&userstate,ch)) GOTOERROR;
 			if (isquit) break;
 			if (nextch) {
-				if (handlekey(&isquit,&nextch,&iskeyboard,&discover,nextch)) GOTOERROR;
+				if (handlekey(&isquit,&nextch,&discover,&userstate,nextch)) GOTOERROR;
 			}
-			if (iskeyboard!=old_iskeyboard) {
-				(ignore)printmenu(iskeyboard);
+			if (userstate.menutype!=old_menutype) {
+				(ignore)printmenu(&userstate);
 			}
 		}
 	}

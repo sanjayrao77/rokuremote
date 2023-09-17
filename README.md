@@ -33,6 +33,7 @@ Usage:
 	connect to ip: rokuremote ip:IPADDRESS[:port]
 	send keypress: rokuremote --keypress_XXX --keypress_YYY
 	don't run interactively: rokuremote --keypress_XXX --quit
+	simulate mute for streaming devices: --nomute
 	print operations: --verbose
 ```
 
@@ -91,6 +92,14 @@ rokuremote --keypress_Home ; rokuremote --keypress_PowerOff --quit
 ### --quit
 
 This option will make rokuremote exit instead of listening for user input. It's best used in conjunction with --keypress\_XXX commands.
+
+### --nomute
+
+For roku devices that don't support __VolumeMute__, you can use this option. I don't
+know which devices **do** support VolumeMute, but it might be the TVs.
+
+Instead of sending VolumeMute with the m,M keys, it sends 5 volume up or down
+commands. You can lower the volume for commercials with a single key.
 
 ### --verbose
 
