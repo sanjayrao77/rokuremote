@@ -41,26 +41,55 @@
 #include "interfaces.h"
 #endif
 #include "discover.h"
+#include "automute.h"
 
-#define MAIN_MENUTYPE	0
-#define KEYBOARD_MENUTYPE	1
-#define POWEROFF_MENUTYPE	2
+#define MAIN_MENUTYPE	1
+#define KEYBOARD_MENUTYPE	2
+#define POWEROFF_MENUTYPE	3
+#define SETTINGS_MENUTYPE 4
+#define UINTENTRY_MENUTYPE 5
+#define AUTOMUTE_MENUTYPE 6
+
+#define MUTESTEP_FIELDINDEX	1
+#define DEF_AUTOMUTE_FIELDINDEX	2
+#define SET_AUTOMUTE_FIELDINDEX	3
 
 struct userstate {
-	int isnomute; // if we don't have VolumeMute, we can similuate mute
 	int menutype;
+	int lastmenuprinted;
+	int isnomute; // if we don't have VolumeMute, we can similuate mute
+	unsigned int mutestep; // if .isnomute, how many steps to take
+	unsigned int def_automute; // initial seconds for automute
+	struct {
+		int fieldindex;
+		unsigned int value;
+		int isedited;
+	} uintentry;
+	struct automute automute;
 };
-SCLEARFUNC(userstate);
+void clear_userstate(struct userstate *g) {
+static struct userstate blank={.menutype=MAIN_MENUTYPE,.mutestep=10,.def_automute=30};
+*g=blank;
+}
 
 static int isverbose_global;
 
-static int sendkeypress(struct discover *d, char *keyname) {
+static inline void voidinit_uintentry(struct userstate *u, int fieldindex, unsigned int defvalue) {
+u->uintentry.isedited=0;
+u->menutype=UINTENTRY_MENUTYPE;
+u->uintentry.fieldindex=fieldindex;
+u->uintentry.value=defvalue;
+}
+
+static int sendkeypress(int *issent_out, struct discover *d, char *keyname) {
 struct blockspool blockspool;
 char uri[80];
 char *extra="Content-type: application/x-www-form-urlencoded\r\n";
+int issent=0;
 
 if (!d->found.ipv4) {
 	fprintf(stderr,"Unable to send keypress %s, no roku discovered yet.\n",keyname);
+	*issent_out=issent;
 	return 0;
 }
 
@@ -87,6 +116,9 @@ fwrite_blockspool(&blockspool,stderr);
 fputc('\n',stderr);
 #endif
 
+if (!sizeof_blockspool(&blockspool)) issent=1;
+
+*issent_out=issent;
 deinit_blockspool(&blockspool);
 return 0;
 error:
@@ -102,6 +134,7 @@ fputs("\tconnect to ip: rokuremote ip:IPADDRESS[:port]\n",fout);
 fputs("\tsend keypress: rokuremote --keypress_XXX --keypress_YYY\n",fout);
 fputs("\tdon't run interactively: rokuremote --keypress_XXX --quit\n",fout);
 fputs("\tsimulate mute for streaming devices: --nomute\n",fout);
+fputs("\tset a settings value: --Dname=value\n",fout);
 fputs("\tprint operations: --verbose\n",fout);
 return 0;
 }
@@ -141,7 +174,26 @@ error:
 }
 
 static int printmenu(struct userstate *uo) {
+if (uo->lastmenuprinted==uo->menutype) return 0;
+uo->lastmenuprinted=uo->menutype;
 switch (uo->menutype) {
+	case AUTOMUTE_MENUTYPE:
+		fprintf(stdout,"Roku remote, automute settings:\n");
+		fprintf(stdout,"\t Right                   :   Add a second\n");
+		fprintf(stdout,"\t Up                      :   Add 5 seconds\n");
+		fprintf(stdout,"\t z                       :   Add %u seconds\n",uo->def_automute);
+		fprintf(stdout,"\t Left                    :   Subtract a second\n");
+		fprintf(stdout,"\t Down                    :   Subtract 5 seconds\n");
+		fprintf(stdout,"\t Enter                   :   Specify remaining seconds\n");
+		fprintf(stdout,"\t Backspace               :   Unmute now\n");
+		fprintf(stdout,"\t anything else           :   Main menu\n");
+		break;
+	case SETTINGS_MENUTYPE:
+		fprintf(stdout,"Roku remote, settings menu:\n");
+		fprintf(stdout,"\t m                       :   Change --nomute steps (%u)\n",uo->mutestep);
+		fprintf(stdout,"\t z                       :   Change automute default (%u)\n",uo->def_automute);
+		fprintf(stdout,"\t anything else           :   Main menu\n");
+		break;
 	case POWEROFF_MENUTYPE:
 		fprintf(stdout,"Roku remote, confirm power-off:\n");
 		fprintf(stdout,"\t Y                       :   Send PowerOff keypress\n");
@@ -170,15 +222,61 @@ switch (uo->menutype) {
 		fprintf(stdout,"\t f                       :   Find remote\n");
 		fprintf(stdout,"\t i                       :   Information\n");
 		if (uo->isnomute) {
-			fprintf(stdout,"\t m,M                     :   Volume down/up 5 steps\n");
+			fprintf(stdout,"\t m,M                     :   Volume down/up %u steps\n",uo->mutestep);
 		} else {
 			fprintf(stdout,"\t m                       :   Mute toggle\n");
 		}
 		fprintf(stdout,"\t p                       :   Power off \n");
 		fprintf(stdout,"\t q,x                     :   Quit\n");
 		fprintf(stdout,"\t r                       :   Instant Replay\n");
+		fprintf(stdout,"\t s                       :   Settings menu\n");
+		fprintf(stdout,"\t z                       :   Auto-mute\n");
 		break;
 }
+return 0;
+}
+
+static void printprompt_uintentry(struct userstate *userstate, int which) {
+if (which<0) {
+	if (userstate->uintentry.value) {
+		(ignore)fprintf(stdout,"Value: %u",userstate->uintentry.value); // this is odd, unused
+	} else {
+		(ignore)fputs("Value: ",stdout);
+	}
+	(ignore)fflush(stdout);
+} else if (!which) {
+	if (userstate->uintentry.value) {
+		char buff20[20];
+		snprintf(buff20,20,"%u",userstate->uintentry.value);
+		(ignore)fprintf(stdout,"\rValue: %s \rValue: %s",buff20,buff20);
+	} else {
+		(ignore)fputs("\rValue:  \rValue: ",stdout);
+	}
+	(ignore)fflush(stdout);
+} else {
+	(ignore)fputs("\n",stdout);
+}
+}
+
+static int sendmute(int *issent_out, struct userstate *userstate, struct discover *d, int isup) {
+int issent=0;
+if (!userstate->isnomute) {
+	if (sendkeypress(&issent,d,"VolumeMute")) {
+		fprintf(stderr,"Error sending http request\n");
+	}
+} else {
+	char *cmd;
+	int i;
+	cmd=isup?"VolumeUp":"VolumeDown";
+	for (i=0;i<userstate->mutestep;i++) {
+		if (sendkeypress(&issent,d,cmd)) {
+			fprintf(stderr,"Error sending http request\n");
+			break;
+		}
+		if (!issent) break;
+	}
+}
+*issent_out=issent;
 return 0;
 }
 
@@ -186,10 +284,94 @@ static int handlekey(int *isquit_out, int *nextkey_out, struct discover *d,
 		struct userstate *userstate, int ch) {
 int nextkey=0;
 int isquit=0;
+int issent;
 char *keypress=NULL;
 char buff8[8];
 
 switch (userstate->menutype) {
+	case AUTOMUTE_MENUTYPE:
+		switch (ch) {
+			case KEY_RIGHT:
+				userstate->automute.stop+=1;
+				break;
+			case KEY_UP:
+				userstate->automute.stop+=5;
+				break;
+			case KEY_LEFT:
+				userstate->automute.stop-=1;
+				break;
+			case KEY_DOWN:
+				userstate->automute.stop-=5;
+				break;
+			case 'z': case 'Z':
+				userstate->automute.stop+=userstate->def_automute;
+				break;
+			case '=':
+			case '\r': case '\n':
+				userstate->automute.isinentry=1;
+				fprintf(stdout,"Enter the number of seconds for automute:\n");
+				(void)voidinit_uintentry(userstate,SET_AUTOMUTE_FIELDINDEX,0);
+				(void)printprompt_uintentry(userstate,-1);
+			break;
+			case 8: case 127:
+				userstate->automute.stop=userstate->automute.start-1;
+				break;
+			default:
+				userstate->menutype=MAIN_MENUTYPE;
+				break;
+		}
+		break;
+	case UINTENTRY_MENUTYPE:
+		switch (ch) {
+			case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+				userstate->uintentry.value=userstate->uintentry.value*10+ch-48;
+				userstate->uintentry.isedited=1;
+				(void)printprompt_uintentry(userstate,0);
+				break;
+			case 8: case 127:
+				userstate->uintentry.value/=10;
+				(void)printprompt_uintentry(userstate,0);
+				break;
+			case '\n': case '\r':
+				if (userstate->uintentry.isedited) {
+					switch (userstate->uintentry.fieldindex) {
+						case MUTESTEP_FIELDINDEX: userstate->mutestep=userstate->uintentry.value; break;
+						case DEF_AUTOMUTE_FIELDINDEX: userstate->def_automute=userstate->uintentry.value; break;
+						case SET_AUTOMUTE_FIELDINDEX:
+								userstate->automute.stop=time(NULL)-userstate->automute.muteseconds+userstate->uintentry.value;
+								break;
+					}
+				}
+				// no break
+			default:
+				(void)printprompt_uintentry(userstate,1);
+				switch (userstate->uintentry.fieldindex) {
+					case SET_AUTOMUTE_FIELDINDEX:
+						userstate->menutype=AUTOMUTE_MENUTYPE;
+						userstate->automute.isinentry=0;
+						break;
+					default:
+						userstate->menutype=SETTINGS_MENUTYPE;
+						break;
+				}
+				break;
+		}
+		break;
+	case SETTINGS_MENUTYPE:
+		userstate->menutype=MAIN_MENUTYPE;
+		switch (ch) {
+			case 'm': case 'M':
+				fprintf(stdout,"Enter the number of steps for --nomute mute simulation:\n");
+				(void)voidinit_uintentry(userstate,MUTESTEP_FIELDINDEX,0);
+				(void)printprompt_uintentry(userstate,-1);
+				break;
+			case 'z': case 'Z':
+				fprintf(stdout,"Enter the number of default seconds for automute:\n");
+				(void)voidinit_uintentry(userstate,DEF_AUTOMUTE_FIELDINDEX,0);
+				(void)printprompt_uintentry(userstate,-1);
+				break;
+		}
+		break;
 	case POWEROFF_MENUTYPE:
 		userstate->menutype=MAIN_MENUTYPE;
 		if (ch=='Y') {
@@ -237,35 +419,26 @@ switch (userstate->menutype) {
 			case 'f': case 'F': keypress="FindRemote"; break;
 			case '-': case '_': keypress="VolumeDown"; break;
 			case '+': case '=': keypress="VolumeUp"; break;
-			case 'm':
-				if (!userstate->isnomute) keypress="VolumeMute";
-				else {
-					int i;
-					for (i=0;i<5;i++) {
-						if (sendkeypress(d,"VolumeDown")) {
-							fprintf(stderr,"Error sending http request\n");
-							break;
-						}
-					}
-				}
-				break;
-			case 'M':
-				if (!userstate->isnomute) keypress="VolumeMute";
-				else {
-					int i;
-					for (i=0;i<5;i++) {
-						if (sendkeypress(d,"VolumeUp")) {
-							fprintf(stderr,"Error sending http request\n");
-							break;
-						}
-					}
-				}
-				break;
+			case 'm': if (sendmute(&issent,userstate,d,0)) GOTOERROR; break;
+			case 'M': if (sendmute(&issent,userstate,d,1)) GOTOERROR; break;
 //			case 'p': case 'P': keypress="PowerOff"; break;
 			case 'p': userstate->menutype=POWEROFF_MENUTYPE; break;
 			case 'i': case 'I': keypress="Info"; break;
 			case 'q': case 'x': case 'Q': case 'X': isquit=1; break;
 			case 'r': case 'R': keypress="InstantReplay"; break;
+			case 's': case 'S': userstate->menutype=SETTINGS_MENUTYPE; break;
+			case 'z': case 'Z':
+				userstate->menutype=AUTOMUTE_MENUTYPE;
+				(ignore)printmenu(userstate);
+				if (!userstate->automute.isactive) {
+					(void)reset_automute(&userstate->automute,userstate->def_automute);
+					if (sendmute(&issent,userstate,d,0)) GOTOERROR;
+					if (!issent) {
+						userstate->menutype=MAIN_MENUTYPE;
+						userstate->automute.isactive=0;
+					}
+				}
+				break;
 			case '\n': case '\r': keypress="Select"; break; // enter
 			case 27: keypress="Home"; break; // esc
 			case ' ': keypress="Play"; break;
@@ -281,13 +454,32 @@ switch (userstate->menutype) {
 }
 
 if (keypress) {
-	if (sendkeypress(d,keypress)) {
+	int issent;
+	if (sendkeypress(&issent,d,keypress)) {
 		fprintf(stderr,"Error sending http request\n");
 	}
 }
 
 *isquit_out=isquit;
 *nextkey_out=nextkey;
+return 0;
+error:
+	return -1;
+}
+
+static int setstring_userstate(struct userstate *u, char *str) {
+char *temp;
+
+if (!strncmp(str,"mutestep",8)) {
+	temp=str+8;
+	if (*temp!='=') GOTOERROR;
+	u->mutestep=slowtou(temp+1);
+} else if (!strncmp(str,"automute",8)) {
+	temp=str+8;
+	if (*temp!='=') GOTOERROR;
+	u->def_automute=slowtou(temp+1);
+} else GOTOERROR;
+
 return 0;
 error:
 	return -1;
@@ -335,6 +527,10 @@ clear_getch(&getch);
 			discovertimeout=5;
 		} else if (!strncmp(arg,"--keypress_",11)) {
 			isprecmd=1;
+		} else if (!strncmp(arg,"--D",3)) {
+			if (setstring_userstate(&userstate,arg+3)) {
+				fprintf(stderr,"%s:%d invalid name or value: %s\n",__FILE__,__LINE__,arg);
+			}
 		} else {
 			if (strcmp(arg,"--help") && strcmp(arg,"-h"))
 					fprintf(stderr,"%s:%d unrecognized argument: \"%s\"\n",__FILE__,__LINE__,arg);
@@ -386,7 +582,9 @@ if (isprecmd) {
 		for (i=1;i<argc;i++) {
 			char *arg=argv[i];
 			if (!strncmp(arg,"--keypress_",11)) {
-				if (sendkeypress(&discover,arg+11)) GOTOERROR;
+				int issent;
+				if (sendkeypress(&issent,&discover,arg+11)) GOTOERROR;
+				if (!issent) break;
 			}
 		}
 		clear_reply_discover(&reply_discover);
@@ -394,10 +592,39 @@ if (isprecmd) {
 }
 if (isinteractive) {
 	if (init_getch(&getch,STDIN_FILENO)) GOTOERROR;
-	(ignore)printmenu(&userstate);
 
 	while (1) {
 		int ch;
+
+		(ignore)printmenu(&userstate);
+
+		if (userstate.automute.isactive && !userstate.automute.isinentry) {
+			int secleft;
+			if (!userstate.automute.isprinted) {
+				fputs("Countdown to unmute:",stdout);
+				fflush(stdout);
+				userstate.automute.isprinted=1;
+			}
+			if (check_automute(&secleft,&userstate.automute,STDIN_FILENO,discover.udp.fd)) GOTOERROR;
+			if (secleft>=0) {
+				int ign;
+				if (!secleft) {
+					userstate.automute.isactive=0;
+					fputs(" ... unmuting now\n",stdout);
+					if (userstate.menutype==AUTOMUTE_MENUTYPE) {
+						userstate.menutype=MAIN_MENUTYPE;
+						(ignore)printmenu(&userstate);
+					}
+					if (sendmute(&ign,&userstate,&discover,1)) GOTOERROR;
+				} else {
+					fprintf(stdout,"\rCountdown to unmute: %d ",secleft);
+					fflush(stdout);
+				}
+				continue;
+			}
+			fputs("\n",stdout);
+			userstate.automute.isprinted=0;
+		}
 
 		if ((discover.udp.fd>=0) && !getch.isnextchar) {
 			int isalt;
@@ -424,15 +651,11 @@ if (isinteractive) {
 			fprintf(stderr,"Got ch: %d\n",ch);
 		}
 		{
-			int old_menutype,isquit,nextch;
-			old_menutype=userstate.menutype;
+			int isquit,nextch;
 			if (handlekey(&isquit,&nextch,&discover,&userstate,ch)) GOTOERROR;
 			if (isquit) break;
 			if (nextch) {
 				if (handlekey(&isquit,&nextch,&discover,&userstate,nextch)) GOTOERROR;
-			}
-			if (userstate.menutype!=old_menutype) {
-				(ignore)printmenu(&userstate);
 			}
 		}
 	}

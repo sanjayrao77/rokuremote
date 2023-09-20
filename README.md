@@ -34,6 +34,7 @@ Usage:
 	send keypress: rokuremote --keypress_XXX --keypress_YYY
 	don't run interactively: rokuremote --keypress_XXX --quit
 	simulate mute for streaming devices: --nomute
+	set a settings value: --Dname=value
 	print operations: --verbose
 ```
 
@@ -101,6 +102,17 @@ know which devices **do** support VolumeMute, but it might be the TVs.
 Instead of sending VolumeMute with the m,M keys, it sends 5 volume up or down
 commands. You can lower the volume for commercials with a single key.
 
+### --Dname=value
+
+There are settings available in the Settings menu. You can specify them on the command line
+with "--Dname=value" where name is one of "mutestep" or "automute" and value is a number of seconds.
+
+Here's an example. It enables mute simulation with a normal volume level of 15. It also sets
+the default auto-mute time period as 60 seconds.
+```
+rokuremote --nomute --Dmutestep=15 --Dautomute=60
+```
+
 ### --verbose
 
 This will print more info. It's meant for debugging.
@@ -116,6 +128,7 @@ If you want to use it to send commands without waiting for input, you can use th
 
 When the program starts (without --quit) it will print the main menu:
 ```
+./rokuremote --nomute
 Roku remote, commands:
          a,1                     :   Enter keyboard mode
          Left,Right,Up,Down      :   Send key
@@ -131,10 +144,12 @@ Roku remote, commands:
          d                       :   Discover roku devices
          f                       :   Find remote
          i                       :   Information
-         m                       :   Mute
+         m,M                     :   Volume down/up 10 steps
          p                       :   Power off
          q,x                     :   Quit
          r                       :   Instant Replay
+         s                       :   Settings menu
+         z                       :   Auto-mute
 ```
 
 If you press 'a' or '1' to enter keyboard mode, you'll get this menu:
