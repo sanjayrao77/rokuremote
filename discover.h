@@ -51,3 +51,4 @@ void setstatic_discover(struct discover *d, uint32_t ipv4);
 int start_discover(struct discover *d);
 int check_discover(int *isalt_out, struct reply_discover *reply_inout, struct discover *d, int altfd);
 void setfilter_discover(struct discover *d, char *sn);
+int readreply_discover(struct reply_discover *reply, struct discover *d);

@@ -66,6 +66,9 @@ struct userstate {
 #if 0
 	unsigned int def_automute; // initial seconds for automute
 #endif
+#define NONE_PRINTSTATE 0
+#define AUTOMUTE_PRINTSTATE	1
+	int printstate;
 	union {
 		struct {
 			int fieldindex;
@@ -202,9 +205,19 @@ error:
 	return -1;
 }
 
+static inline void reset_printstate(struct userstate *uo) {
+if (uo->printstate!=NONE_PRINTSTATE) {
+	fputc('\n',stdout);
+	uo->printstate=NONE_PRINTSTATE;
+}
+}
+
 static int printmenu(struct userstate *uo) {
 if (uo->lastmenuprinted==uo->menutype) return 0;
 uo->lastmenuprinted=uo->menutype;
+
+(void)reset_printstate(uo);
+
 switch (uo->menutype) {
 #if 0
 	case AUTOMUTE_MENUTYPE:
@@ -558,7 +571,7 @@ switch (userstate->menutype) {
 			case '\n': case '\r': keypress="Enter"; break;
 			case 8: case 127: keypress="Backspace"; break;
 			default:
-				fprintf(stderr,"Got unknown ch: %d\r\n",ch);
+				if (isverbose_global) fprintf(stderr,"Got unknown ch: %d\r\n",ch);
 				break;
 		}
 		break;
@@ -650,7 +663,7 @@ switch (userstate->menutype) {
 			case KEY_LEFT: keypress="Left"; break;
 			case KEY_RIGHT: keypress="Right"; break;
 			default:
-				fprintf(stderr,"Got unknown ch: %d\r\n",ch);
+				if (isverbose_global) fprintf(stderr,"Got unknown ch: %d\r\n",ch);
 				break;
 		}
 		break;
@@ -705,18 +718,124 @@ error:
 	return -1;
 }
 
-static int isfdready(int fd) {
-struct pollfd pollfd;
-pollfd.fd=fd;
-pollfd.events=POLLIN;
-if (1==poll(&pollfd,1,0)) return 1;
+static int step_getch(int *isquit_inout, struct userstate *userstate, struct discover *discover, struct getch *getch) {
+int ch;
+
+ch=getch_getch(getch);
+if (isverbose_global) {
+	fprintf(stderr,"Got ch: %d\n",ch);
+}
+{
+	int isquit,nextch;
+	if (handlekey(&isquit,&nextch,discover,userstate,ch)) GOTOERROR;
+	if (isquit) *isquit_inout=1;
+	if (nextch) {
+		if (handlekey(&isquit,&nextch,discover,userstate,nextch)) GOTOERROR;
+		if (isquit) *isquit_inout=1;
+	}
+}
+
 return 0;
+error:
+	return -1;
+}
+
+static inline int step_volume(struct userstate *userstate, struct discover *discover) {
+if (!userstate->volume._isdirty) return 0;
+if (!discover->found.ipv4) {
+	userstate->volume._isdirty=0; // avoid inf loop, wait for device to be discovered
+	return 0;
+}
+
+char *keypress=NULL;
+int delta=0;
+if (userstate->volume.target < userstate->volume.current) {
+	keypress="VolumeDown";
+	delta=-1;
+} else if (userstate->volume.target > userstate->volume.current) {
+	keypress="VolumeUp";
+	delta=1;
+}
+if (delta) {
+	int issent;
+	if (sendkeypress(&issent,discover,keypress)) {
+		fprintf(stderr,"Error sending http request\n");
+		if (!userstate->volume.errorfuse) {
+			userstate->volume._isdirty=0;
+		}
+		sleep(1); // without a sleep we might burn through errorfuse before device wakes
+		userstate->volume.errorfuse--;
+	} else {
+		if (issent) userstate->volume.current+=delta;
+	}
+}
+if (userstate->volume.target==userstate->volume.current) userstate->volume._isdirty=0;
+return 0;
+}
+
+static inline int step_discover(struct userstate *userstate, struct discover *discover) {
+struct reply_discover reply_discover;
+uint32_t oldip;
+if (discover->udp.fd<0) return 0;
+oldip=discover->found.ipv4;
+if (readreply_discover(&reply_discover,discover)) GOTOERROR;
+if (reply_discover.ipv4) {
+	if (discover->found.ipv4!=oldip) {
+		(void)reset_printstate(userstate);
+		fprintf(stdout,"%s:%d selected roku at %u.%u.%u.%u:%u sn:%s\n",__FILE__,__LINE__,
+				(reply_discover.ipv4>>0)&0xff, (reply_discover.ipv4>>8)&0xff, (reply_discover.ipv4>>16)&0xff, (reply_discover.ipv4>>24)&0xff,
+				reply_discover.port,reply_discover.id_roku.usn);
+		if (userstate->volume.current!=userstate->volume.target) (void)setdirty_volume(userstate);
+	} else {
+		(void)reset_printstate(userstate);
+		fprintf(stdout,"%s:%d another roku is at %u.%u.%u.%u:%u sn:%s\n",__FILE__,__LINE__,
+				(reply_discover.ipv4>>0)&0xff, (reply_discover.ipv4>>8)&0xff, (reply_discover.ipv4>>16)&0xff, (reply_discover.ipv4>>24)&0xff,
+				reply_discover.port,reply_discover.id_roku.usn);
+	}
+}
+return 0;
+error:
+	return -1;
+}
+
+static inline int step_automute(struct userstate *userstate, struct discover *discover) {
+if (!userstate->automute.isactive) return 0;
+#if 0
+if (!userstate->automute.isinentry) return 0; // not in use
+#endif
+
+int secleft;
+secleft=secleft_automute(&userstate->automute);
+
+if (userstate->printstate!=AUTOMUTE_PRINTSTATE) {
+	fputs("Countdown to unmute:",stdout);
+	userstate->printstate=AUTOMUTE_PRINTSTATE;
+}
+
+if (secleft<=0) {
+	int ign;
+	userstate->automute.isactive=0;
+	fputs("\rCountdown to unmute: 0 ... unmuting now\n",stdout);
+#if 0
+	if (userstate.menutype==AUTOMUTE_MENUTYPE) {
+		userstate.menutype=MAIN_MENUTYPE;
+		(ignore)printmenu(&userstate);
+	}
+#endif
+	if (sendmute(&ign,userstate,discover,1)) GOTOERROR;
+} else {
+	fprintf(stdout,"\rCountdown to unmute: %d ",secleft);
+	fflush(stdout);
+}
+
+return 0;
+error:
+	return -1;
 }
 
 int main(int argc, char **argv) {
 struct userstate userstate;
 struct discover discover;
-struct reply_discover reply_discover;
 struct getch getch;
 uint32_t ipv4=0;
 unsigned short port;
@@ -728,7 +847,6 @@ int isinteractive=1;
 
 clear_userstate(&userstate);
 clear_discover(&discover);
-clear_reply_discover(&reply_discover);
 clear_getch(&getch);
 
 {
@@ -800,13 +918,20 @@ if (!discover.found.ipv4) {
 }
 
 if (isprecmd) {
+	struct reply_discover reply_discover;
 	int ign;
+	clear_reply_discover(&reply_discover);
 	if (check_discover(&ign,&reply_discover,&discover,-1)) GOTOERROR;
 	if (!discover.found.ipv4) {
 		fprintf(stderr,"%s:%d no roku device discovered\n",__FILE__,__LINE__);
 		isinteractive=0;
 	} else {
 		int i;
+		if (isinteractive) {
+			fprintf(stdout,"%s:%d selected roku at %u.%u.%u.%u:%u sn:%s\n",__FILE__,__LINE__,
+					(reply_discover.ipv4>>0)&0xff, (reply_discover.ipv4>>8)&0xff, (reply_discover.ipv4>>16)&0xff, (reply_discover.ipv4>>24)&0xff,
+					reply_discover.port,reply_discover.id_roku.usn);
+		}
 		for (i=1;i<argc;i++) {
 			char *arg=argv[i];
 			if (!strncmp(arg,"--keypress_",11)) {
@@ -815,113 +940,63 @@ if (isprecmd) {
 				if (!issent) break;
 			}
 		}
-		clear_reply_discover(&reply_discover);
 	}
 }
 if (isinteractive) {
+#define STDIN_POLLFDS	0
+#define DISCOVER_POLLFDS	1
+	struct pollfd pollfds[2];
+	int isquit=0;
+
+	pollfds[0].fd=STDIN_FILENO;
+	pollfds[0].events=POLLIN;
+	pollfds[0].revents=0; // might need to clear this on use
+	pollfds[1].fd=-1;
+	pollfds[1].events=POLLIN;
+	pollfds[1].revents=0; // be sure to clear this on use
+
 	if (init_getch(&getch,STDIN_FILENO)) GOTOERROR;
 
-	while (1) {
-		int ch;
+	while (!isquit) {
+		int ms_poll,num_poll;
+
+		if (getch.isnextchar) {
+			if (step_getch(&isquit,&userstate,&discover,&getch)) GOTOERROR;
+			continue;
+		}
 
 		(ignore)printmenu(&userstate);
 
-		if (userstate.volume._isdirty && discover.found.ipv4) {
-// there's a potential inf loop if the roku ip changes or the device turns off, we avoid it with an errorfuse and checking discover.found.ipv4
-			if (userstate.automute.isactive && istimedout_automute(&userstate.automute)) {
-			} else if (isfdready(STDIN_FILENO)) {
-			} else {
-				char *keypress=NULL;
-				int delta=0;
-				if (userstate.volume.target < userstate.volume.current) {
-					keypress="VolumeDown";
-					delta=-1;
-				} else if (userstate.volume.target > userstate.volume.current) {
-					keypress="VolumeUp";
-					delta=1;
+		ms_poll=-1;
+		num_poll=1;
+
+		if (userstate.volume._isdirty) {
+			ms_poll=0;
+		} else if (userstate.automute.isactive) {
+			ms_poll=1000;
+		}
+		if (discover.udp.fd>=0) {
+			num_poll=2;
+			pollfds[DISCOVER_POLLFDS].fd=discover.udp.fd;
+		}
+		switch (poll(pollfds,num_poll,ms_poll)) {
+			case -1: if (errno==EAGAIN) continue; GOTOERROR;
+			case 1: case 2:
+				if (pollfds[DISCOVER_POLLFDS].revents) {
+					pollfds[DISCOVER_POLLFDS].revents=0;
+					if (step_discover(&userstate,&discover)) GOTOERROR;
 				}
-				if (delta) {
-					int issent;
-					if (sendkeypress(&issent,&discover,keypress)) {
-						fprintf(stderr,"Error sending http request\n");
-						if (!userstate.volume.errorfuse) {
-							userstate.volume._isdirty=0;
-							continue;
-						}
-						sleep(1);
-						userstate.volume.errorfuse--;
-						continue;
-					}
-					if (issent) userstate.volume.current+=delta;
+				if (pollfds[STDIN_POLLFDS].revents) {
+					if (step_getch(&isquit,&userstate,&discover,&getch)) GOTOERROR;
 				}
-				if (userstate.volume.target==userstate.volume.current) userstate.volume._isdirty=0;
-				else continue;
-			}
+				break;
 		}
 
-		if (userstate.automute.isactive && !userstate.automute.isinentry) {
-			int secleft;
-			if (!userstate.automute.isprinted) {
-				fputs("Countdown to unmute:",stdout);
-				fflush(stdout);
-				userstate.automute.isprinted=1;
-			}
-			if (check_automute(&secleft,&userstate.automute,STDIN_FILENO,discover.udp.fd)) GOTOERROR;
-			if (secleft>=0) {
-				int ign;
-				if (!secleft) {
-					userstate.automute.isactive=0;
-					fputs(" ... unmuting now\n",stdout);
-#if 0
-					if (userstate.menutype==AUTOMUTE_MENUTYPE) {
-						userstate.menutype=MAIN_MENUTYPE;
-						(ignore)printmenu(&userstate);
-					}
-#endif
-					if (sendmute(&ign,&userstate,&discover,1)) GOTOERROR;
-				} else {
-					fprintf(stdout,"\rCountdown to unmute: %d ",secleft);
-					fflush(stdout);
-				}
-				continue;
-			}
-			fputs("\n",stdout);
-			userstate.automute.isprinted=0;
-		}
+		if (step_volume(&userstate,&discover)) GOTOERROR;
+		if (step_automute(&userstate,&discover)) GOTOERROR;
 
-		if ((discover.udp.fd>=0) && !getch.isnextchar) {
-			int isalt;
-			uint32_t oldip;
-			oldip=discover.found.ipv4;
-			if (check_discover(&isalt,&reply_discover,&discover,STDIN_FILENO)) GOTOERROR;
-			if (reply_discover.ipv4) {
-				if (discover.found.ipv4!=oldip) {
-					fprintf(stdout,"%s:%d selected roku at %u.%u.%u.%u:%u sn:%s\n",__FILE__,__LINE__,
-							(reply_discover.ipv4>>0)&0xff, (reply_discover.ipv4>>8)&0xff, (reply_discover.ipv4>>16)&0xff, (reply_discover.ipv4>>24)&0xff,
-						reply_discover.port,reply_discover.id_roku.usn);
-					if (userstate.volume.current!=userstate.volume.target) (void)setdirty_volume(&userstate);
-				} else {
-					fprintf(stdout,"%s:%d another roku is at %u.%u.%u.%u:%u sn:%s\n",__FILE__,__LINE__,
-							(reply_discover.ipv4>>0)&0xff, (reply_discover.ipv4>>8)&0xff, (reply_discover.ipv4>>16)&0xff, (reply_discover.ipv4>>24)&0xff,
-						reply_discover.port,reply_discover.id_roku.usn);
-				}
-				clear_reply_discover(&reply_discover);
-			}
-			if (!isalt) continue;
-		}
-		
-		ch=getch_getch(&getch);
-		if (isverbose_global) {
-			fprintf(stderr,"Got ch: %d\n",ch);
-		}
-		{
-			int isquit,nextch;
-			if (handlekey(&isquit,&nextch,&discover,&userstate,ch)) GOTOERROR;
-			if (isquit) break;
-			if (nextch) {
-				if (handlekey(&isquit,&nextch,&discover,&userstate,nextch)) GOTOERROR;
-			}
-		}
+
+
 	}
 } // isinteractive
 

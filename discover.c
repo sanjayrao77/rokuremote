@@ -244,6 +244,30 @@ if (!strcmp(d->persist.filter.id.usn,reply->id_roku.usn)) return 1;
 return 0;
 }
 
+static inline void checkreply(struct discover *d, struct reply_discover *reply) {
+if (!d->found.ipv4) {
+	if (ismatch_filter(d,reply)) {
+		if (!d->persist.filter.isfilter) {
+			d->persist.filter.isfilter=1;
+			d->persist.filter.id=reply->id_roku;
+		}
+		d->found.ipv4=reply->ipv4;
+		d->found.port=reply->port;
+		d->expires=time(NULL)+d->persist.timeout;
+	}
+}
+
+}
+
+int readreply_discover(struct reply_discover *reply, struct discover *d) {
+clear_reply_discover(reply);
+if (readreply(reply,d)) GOTOERROR;
+(void)checkreply(d,reply);
+return 0;
+error:
+	return -1;
+}
+
 int check_discover(int *isalt_out, struct reply_discover *reply_inout, struct discover *d, int altfd) {
 // reply should be cleared before calling this
 struct pollfd pollfds[2];
@@ -269,17 +293,7 @@ while (1) {
 	if (r<0) GOTOERROR;
 	if (pollfds[0].revents&POLLIN) {
 		if (readreply(reply_inout,d)) GOTOERROR;
-		if (!d->found.ipv4) {
-			if (ismatch_filter(d,reply_inout)) {
-				if (!d->persist.filter.isfilter) {
-					d->persist.filter.isfilter=1;
-					d->persist.filter.id=reply_inout->id_roku;
-				}
-				d->found.ipv4=reply_inout->ipv4;
-				d->found.port=reply_inout->port;
-				d->expires=time(NULL)+d->persist.timeout;
-			}
-		}
+		(void)checkreply(d,reply_inout);
 		isbreak=1;
 	}
 	if (pollfds[1].revents&POLLIN) {

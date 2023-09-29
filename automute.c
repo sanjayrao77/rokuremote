@@ -31,7 +31,6 @@
 
 void reset_automute(struct automute *a, unsigned int seconds) {
 a->isactive=1;
-a->isprinted=0;
 a->start=time(NULL);
 a->stop=a->start+seconds;
 a->muteseconds=-1;
