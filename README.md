@@ -105,12 +105,12 @@ commands. You can lower the volume for commercials with a single key.
 ### --Dname=value
 
 There are settings available in the Settings menu. You can specify them on the command line
-with "--Dname=value" where name is one of "mutestep" or "automute" and value is a number of seconds.
+with "--Dname=value". Currently only "--Dfullvolume=XX" is used, where XX is the desired
+volume on the tv.
 
-Here's an example. It enables mute simulation with a normal volume level of 15. It also sets
-the default auto-mute time period as 60 seconds.
+Here's an example. It enables mute simulation with a normal volume level of 15.
 ```
-rokuremote --nomute --Dmutestep=15 --Dautomute=60
+rokuremote --nomute --Dfullvolume=15
 ```
 
 ### --verbose
@@ -124,11 +124,29 @@ As devices are found on the network, it will print those too.
 
 If you want to use it to send commands without waiting for input, you can use the --quit and --keypress\_XXX arguments.
 
+## Auto-mute
+
+I like to turn down the volume for commercials and have the program automatically unmute the volume
+after an elapsed time.
+
+You can press 'z' from the main menu to mute for a minute. You can add more time with 'x', 'c', and 'v'.
+You can decrease the time with 'Z', 'X', 'C' and 'V'.
+
+To un-mute manually (e.g. if the commercials end early), you can press 'Z' 'Z' to zero out the time.
+
+Some devices support VolumeMute. If your device doesn't support that, you can use the "--nomute" argument
+to simulate mute/unmute by using multiple volume down/up commands.
+
+The program is clever enough to stop a mute/unmute simulation if the user specifies the reverse in
+the middle. For example, while it is gradually increasing the volume to simulate an unmute, you
+can request more automuting by pressing 'z' and then the program will re-mute without completing
+the unmute.
+
 ## Menus
 
 When the program starts (without --quit) it will print the main menu:
 ```
-./rokuremote --nomute
+./rokuremote --nomute --Dfullvolume=15
 Roku remote, commands:
          a,1                     :   Enter keyboard mode
          Left,Right,Up,Down      :   Send key
@@ -144,12 +162,14 @@ Roku remote, commands:
          d                       :   Discover roku devices
          f                       :   Find remote
          i                       :   Information
-         m,M                     :   Volume down/up 10 steps
+         m,M                     :   Volume down/up 15 steps
          p                       :   Power off
-         q,x                     :   Quit
+         q                       :   Quit
+         Q                       :   Reboot
          r                       :   Instant Replay
          s                       :   Settings menu
-         z                       :   Auto-mute
+         z,x,c,v                 :   Auto-mute (60/30/10/5 seconds)
+         Z,X,C,V                 :   Reduce or cancel auto-mute (60/30/10/5 seconds)
 ```
 
 If you press 'a' or '1' to enter keyboard mode, you'll get this menu:
