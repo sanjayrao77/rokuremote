@@ -17,7 +17,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 struct discover {
-	time_t expires;
+	time_t expires,nextpacket;
 	struct {
 		uint32_t ipv4;
 		unsigned short port;
@@ -47,8 +47,10 @@ H_CLEARFUNC(reply_discover);
 
 void voidinit_discover(struct discover *d, int timeout, uint32_t multicastip);
 void deinit_discover(struct discover *d);
+void expire_discover(struct discover *d);
 void setstatic_discover(struct discover *d, uint32_t ipv4);
 int start_discover(struct discover *d);
+int sendpacket_discover(struct discover *d);
 int check_discover(int *isalt_out, struct reply_discover *reply_inout, struct discover *d, int altfd);
 void setfilter_discover(struct discover *d, char *sn);
 int readreply_discover(struct reply_discover *reply, struct discover *d);

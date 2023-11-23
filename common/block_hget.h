@@ -17,5 +17,5 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-int ipv4_post_hget(struct blockspool *spool, char *host, uint32_t ipv4, unsigned short port, char *uri,
+int ipv4_hget(struct blockspool *spool, char *host, uint32_t ipv4, unsigned short port, char *uri,
 		unsigned char *post, unsigned int postlen, char *extraheaders, time_t expires);

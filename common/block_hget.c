@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 #define DEBUG
 #include "conventions.h"
 #include "blockmem.h"
@@ -61,7 +62,7 @@ error:
 	return -1;
 }
 
-int ipv4_post_hget(struct blockspool *spool, char *host, uint32_t ipv4, unsigned short port, char *uri,
+int ipv4_hget(struct blockspool *spool, char *host, uint32_t ipv4, unsigned short port, char *uri,
 		unsigned char *post, unsigned int postlen, char *extraheaders, time_t expires) {
 char *request=NULL,*headers=NULL;
 unsigned char *overread=NULL;
@@ -75,19 +76,19 @@ if (!extraheaders) extraheaders="";
 
 if (host) {
 	if (!(request=malloc(4096+strlen(uri)+strlen(host)+strlen(extraheaders)))) GOTOERROR;
-	sprintf(request,"POST %s HTTP/1.0\r\n"\
+	sprintf(request,"%s %s HTTP/1.0\r\n"\
 	"Host: %s\r\n"\
 	"Content-length: %u\r\n"\
 	"Connection: close\r\n"\
 	"%s"\
-	"\r\n",uri,host,postlen,extraheaders);
+	"\r\n",post?"POST":"GET",uri,host,postlen,extraheaders);
 } else {
 	if (!(request=malloc(4096+strlen(uri)+strlen(extraheaders)))) GOTOERROR;
-	sprintf(request,"POST %s HTTP/1.0\r\n"\
+	sprintf(request,"%s %s HTTP/1.0\r\n"\
 	"Content-length: %u\r\n"\
 	"Connection: close\r\n"\
 	"%s"\
-	"\r\n",uri,postlen,extraheaders);
+	"\r\n",post?"POST":"GET",uri,postlen,extraheaders);
 }
 
 {
@@ -100,7 +101,9 @@ if (host) {
 }
 (ignore)nodelay_net(fd);
 if (writemsg_net(fd,(unsigned char *)request,strlen(request),expires)) GOTOERROR;
-if (writemsg_net(fd,post,postlen,expires)) GOTOERROR;
+if (postlen) {
+	if (writemsg_net(fd,post,postlen,expires)) GOTOERROR;
+}
 if (getlineheader_net(fd,&headers,&overread,&overreadlen,0,expires)) GOTOERROR;
 if (parseheaders(&responseinfo,headers)) GOTOERROR;
 if (responseinfo.httpstatus!=200) GOTOERROR;

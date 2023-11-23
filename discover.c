@@ -107,9 +107,17 @@ n=sendto(d->udp.fd,msg,msglen,0,(struct sockaddr*)&sa,sizeof(sa));
 if (0>n) GOTOERROR;
 if (n!=msglen) GOTOERROR;
 
+#if 0
+#warning
+fprintf(stderr,"%s:%d sent discover packet\n",__FILE__,__LINE__);
+#endif
+
 return 0;
 error:
 	return -1;
+}
+int sendpacket_discover(struct discover *d) {
+return sendpacket(d);
 }
 
 static void reset_discover(struct discover *d) {
@@ -127,6 +135,7 @@ reset_discover(d);
 
 if (getsocket(d)) GOTOERROR;
 if (sendpacket(d)) GOTOERROR;
+d->nextpacket=time(NULL)+2;
 
 return 0;
 error:
@@ -254,6 +263,7 @@ if (!d->found.ipv4) {
 		d->found.ipv4=reply->ipv4;
 		d->found.port=reply->port;
 		d->expires=time(NULL)+d->persist.timeout;
+		d->nextpacket=d->expires;
 	}
 }
 
@@ -266,6 +276,14 @@ if (readreply(reply,d)) GOTOERROR;
 return 0;
 error:
 	return -1;
+}
+
+static inline void expire(struct discover *d) {
+close(d->udp.fd);
+d->udp.fd=-1;
+}
+void expire_discover(struct discover *d) {
+(void)expire(d);
 }
 
 int check_discover(int *isalt_out, struct reply_discover *reply_inout, struct discover *d, int altfd) {
@@ -283,10 +301,13 @@ while (1) {
 	time_t now;
 	int r;
 	now=time(NULL);
-	if (d->expires && (d->expires < now)) {
-		close(d->udp.fd);
-		d->udp.fd=-1;
+	if (d->expires && (d->expires <= now)) {
+		(void)expire(d);
 		break;
+	}
+	if (d->nextpacket <= now) {
+		if (sendpacket(d)) GOTOERROR;
+		d->nextpacket=now+5;
 	}
 	r=poll(pollfds,2,10);
 	if (!r) continue;

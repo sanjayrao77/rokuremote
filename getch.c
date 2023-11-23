@@ -39,6 +39,8 @@ static struct getch blank={.nofree.fd=-1};
 int init_getch(struct getch *g, int fd) {
 struct termios t;
 
+if (fd<0) return 0;
+
 if (tcgetattr(fd,&t)) GOTOERROR;
 g->nofree.orig_termios_fd=t;
 t.c_lflag &= ~(ECHO|ICANON);

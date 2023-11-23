@@ -18,3 +18,5 @@
  */
 unsigned int slowtou(char *str);
 unsigned int getuint32(unsigned char *buff);
+int readn(int fd, unsigned char *msg, unsigned int len);
+unsigned int hextou(char *str);

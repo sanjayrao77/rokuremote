@@ -123,3 +123,37 @@ while (1) {
 }
 return count;
 }
+
+static inline void export2_blockspool(unsigned char *dest, struct blockspool *bs) {
+struct node_blockmem *node;
+unsigned char *ptr;
+ptr=dest;
+node=&bs->blockmem.node;
+while (1) {
+	unsigned int num;
+
+	num=node->num;
+	memcpy(ptr,node->data,num);
+	
+	node=node->next;
+	if (!node) break;
+	ptr+=num;
+}
+}
+int exportz_blockspool(char **ptr_out, unsigned int *len_out, struct blockspool *bs) {
+char *ret;
+unsigned int count;
+
+if (bs->error) GOTOERROR;
+count=sizeof_blockmem(&bs->blockmem);
+if (!(ret=malloc(count+1))) GOTOERROR;
+ret[count]=0;
+
+(void)export2_blockspool((unsigned char *)ret,bs);
+
+*ptr_out=ret;
+*len_out=count;
+return 0;
+error:
+	return -1;
+}
