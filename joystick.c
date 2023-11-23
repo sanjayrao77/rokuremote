@@ -566,7 +566,7 @@ vendor=0; product=0;
 if (!(fin=fopen("/proc/bus/input/devices","r"))) GOTOERROR;
 while (1) {
 	char *temp;
-#ifdef __GNUCC__
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
 #endif
@@ -593,7 +593,7 @@ while (1) {
 		if (!temp) GOTOERROR;
 		*temp=0;
 	}
-#ifdef __GNUCC__
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
 }
@@ -616,7 +616,7 @@ name[0]=0; handlers[0]=0;
 if (!(fin=fopen("/proc/bus/input/devices","r"))) GOTOERROR;
 while (1) {
 	char *temp;
-#ifdef __GNUCC__
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
 #endif
@@ -687,7 +687,7 @@ vendor=0; product=0;
 if (!(fin=fopen("/proc/bus/input/devices","r"))) GOTOERROR;
 while (1) {
 	char *temp;
-#ifdef __GNUCC__
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
 #endif
@@ -726,7 +726,7 @@ while (1) {
 		if (!temp) GOTOERROR;
 		*temp=0;
 	}
-#ifdef __GNUCC__
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
 }

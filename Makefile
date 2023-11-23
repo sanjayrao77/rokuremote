@@ -1,5 +1,6 @@
 MULTICASTIP=192.168.1.19
-CFLAGS=-g -O2 -Wall
+CC=gcc
+CFLAGS=-g -O2 -Wall -Wno-unknown-pragmas
 all: rokuremote
 
 rokuremote: main.o userstate.o options.o menus.o action.o interfaces.o discover.o getch.o automute.o joystick.o notify.o common/blockmem.o common/blockspool.o common/block_hget.o common/someutils.o common/net.o
