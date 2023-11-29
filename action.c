@@ -45,8 +45,14 @@
 
 #include "action.h"
 
-char *reboot_global[]={"Home","sleep","sleep","Home","sleep","Up","sleep","Right","sleep","Up","sleep","Right","sleep","Up","sleep","Up","sleep","Right","sleep","Select",NULL};
-char *reboot2_global[]={"Up","sleep","Right","sleep","Up","sleep","Right","sleep","Up","sleep","Up","sleep","Right","sleep","Select",NULL};
+char *express_reboot_global[]={"Home","sleep","sleep","Home","sleep",
+		"Up","sleep","Right","sleep","Up","sleep","Right","sleep","Up","sleep","Up","sleep","Right","sleep","Select",NULL};
+char *express2_reboot_global[]={"Up","sleep","Right","sleep","Up","sleep","Right","sleep","Up","sleep","Up","sleep","Right","sleep","Select",NULL};
+char *rokutv_reboot_global[]={"Home","sleep","sleep","Home","sleep", 
+		"Up","sleep","Right","sleep", "Up","sleep","Right","sleep", "Down","sleep", "Down","sleep",
+		"Down","sleep", "Right","sleep", "Up","sleep", "Select","sleep", "Select",NULL};
+char *rokutv2_reboot_global[]={"Up","sleep","Right","sleep", "Up","sleep","Right","sleep", "Down","sleep", "Down","sleep",
+		"Down","sleep", "Right","sleep", "Up","sleep", "Select","sleep", "Select",NULL};
 char *right40_global[]={ "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right",
 		"Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right",
 		"Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right",
@@ -102,11 +108,11 @@ error:
 	return -1;
 }
 
-int sendmute_action(int *isnotsent_out, struct userstate *userstate, struct discover *d, int isup) {
+int sendmute_action(int *isnotsent_out, struct userstate *userstate, struct discover *discover, int isup) {
 int isnotsent=0;
-if (!userstate->options.isnomute) {
+if (!userstate->options.isstepmute) {
 	int issent;
-	if (sendkeypress_action(&issent,userstate,d,"VolumeMute")) {
+	if (sendkeypress_action(&issent,userstate,discover,"VolumeMute")) {
 		isnotsent=1;
 		fprintf(stderr,"Error sending http request\n");
 	} else {
@@ -120,8 +126,13 @@ if (!userstate->options.isnomute) {
 		userstate->volume.target+=step;
 		if (userstate->volume.target > userstate->volume.full) userstate->volume.target=userstate->volume.full;
 	} else {
-		if (userstate->volume.target <= step) userstate->volume.target=0;
-		else userstate->volume.target-=step;
+		if (userstate->volume.target <= step) {
+			int ign;
+			userstate->volume.target=0;
+			if (discover->found.device.ismute && !userstate->delays.down_volumestep) {
+				(ignore)sendkeypress_action(&ign,userstate,discover,"VolumeMute");
+			}
+		} else userstate->volume.target-=step;
 	}
 }
 *isnotsent_out=isnotsent;
@@ -131,7 +142,8 @@ return 0;
 int changemute_action(struct userstate *userstate, struct discover *discover, int mutestep, char *finalkeypress) {
 if (!userstate->automute.isactive && (mutestep>0)) {
 	int isnotsent;
-	(void)reset_automute(&userstate->automute,mutestep);
+	(void)reset_automute(&userstate->automute,userstate->delays.down_volumestep,userstate->delays.up_volumestep,userstate->volume.full,
+			mutestep);
 	if (sendmute_action(&isnotsent,userstate,discover,0)) GOTOERROR;
 	if (isnotsent) {
 		userstate->automute.isactive=0;
@@ -187,7 +199,7 @@ if (userstate->automute.isactive) {
 	userstate->volume.full+=1;
 	(void)setdirty_volume(userstate);
 	if (!userstate->terminal.issilent) {
-		if (userstate->options.isnomute) {
+		if (userstate->options.isstepmute) {
 			(void)set_printstate(userstate,NEWVOLUME_PRINTSTATE_TERMINAL);
 			fprintf(stdout,"\r   m/M                     :   Volume down/up %u steps ",userstate->volume.full);
 			fflush(stdout);
@@ -211,7 +223,7 @@ if (userstate->volume.full) {
 		if (userstate->volume.full==userstate->volume.target) userstate->volume.target-=1;
 		userstate->volume.full-=1;
 		if (!userstate->terminal.issilent) {
-			if (userstate->options.isnomute) {
+			if (userstate->options.isstepmute) {
 				(void)set_printstate(userstate,NEWVOLUME_PRINTSTATE_TERMINAL);
 				fprintf(stdout,"\r   m/M                     :   Volume down/up %u steps ",userstate->volume.full);
 				fflush(stdout);
@@ -227,44 +239,13 @@ if (userstate->volume.full) {
 }
 
 
-static inline int printfilter(FILE *fout, char *str, char *filter) {
-// modifies str
-while (1) {
-	char *temp;
-	temp=strchr(str,'\n');
-	if (temp) *temp=0;
-	if (strstr(str,filter)) {
-		(ignore)fputs(str,fout);
-		(ignore)fputc('\n',fout);
-	}
-	if (!temp) break;
-	*temp='\n';
-	str=temp+1;
+char **getreboot_action(struct discover *discover) {
+if (!discover->found.device.isset) return NULL;
+if (discover->found.device.istv) return rokutv_reboot_global;
+return express_reboot_global;
 }
-return 0;
-}
-
-int querydeviceinfo_action(FILE *fout, uint32_t ipv4, unsigned short port, char *filter) {
-struct blockspool blockspool;
-char *flat=NULL;
-unsigned int flatlen;
-
-clear_blockspool(&blockspool);
-if (init_blockspool(&blockspool)) GOTOERROR;
-if (ipv4_hget(&blockspool,NULL,ipv4,port,"/query/device-info",NULL,0,NULL,time(NULL)+10)) GOTOERROR;
-if (exportz_blockspool(&flat,&flatlen,&blockspool)) GOTOERROR;
-
-if (!filter) {
-	fprintf(fout,"Device info (%u.%u.%u.%u):\n", ipv4&0xff, (ipv4>>8)&0xff, (ipv4>>16)&0xff, (ipv4>>24)&0xff);
-	fwrite(flat,flatlen,1,fout);
-	fputc('\n',fout);
-} else {
-	(ignore)printfilter(fout,flat,filter);
-}
-
-free(flat);
-return 0;
-error:
-	iffree(flat);
-	return -1;
+char **getreboot2_action(struct discover *discover) {
+if (!discover->found.device.isset) return NULL;
+if (discover->found.device.istv) return rokutv2_reboot_global;
+return express2_reboot_global;
 }

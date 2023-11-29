@@ -188,7 +188,7 @@ switch (uo->menus.type) {
 		fprintf(stdout,"   d                    :   Discover roku devices\n");
 		fprintf(stdout,"   f                    :   Find remote\n");
 		fprintf(stdout,"   i                    :   Information\n");
-		if (uo->options.isnomute) {
+		if (uo->options.isstepmute) {
 			fprintf(stdout,"   m/M                  :   Volume down/up %u steps\n",uo->volume.full);
 		} else {
 			fprintf(stdout,"   m                    :   Mute toggle\n");
@@ -242,7 +242,7 @@ if (which<0) {
 }
 }
 
-int handlekey_menus(int *isquit_out, int *nextkey_out, struct userstate *userstate, struct discover *d, int ch) {
+int handlekey_menus(int *isquit_out, int *nextkey_out, struct userstate *userstate, struct discover *discover, int ch) {
 int nextkey=0;
 int isquit=0,isquit2=0;
 int ign;
@@ -379,7 +379,7 @@ switch (userstate->menus.type) {
 		userstate->menus.type=MAIN_TYPE_MENU;
 		switch (ch) {
 			case 'v': case 'V':
-				fprintf(stdout,"Enter the normal tv volume, for --nomute simulation:\n");
+				fprintf(stdout,"Enter the normal tv volume, for --stepmute simulation:\n");
 				(void)voidinit_uintentry(userstate,FULLVOLUME_FIELDINDEX_MENU,0);
 				(void)printprompt_uintentry(userstate,-1);
 				break;
@@ -400,7 +400,7 @@ switch (userstate->menus.type) {
 				break;
 #if 0
 			case 't': case 'T':
-				fprintf(stdout,"Tie volume changes to --nomute mute simulation steps:\n");
+				fprintf(stdout,"Tie volume changes to --stepmute mute simulation steps:\n");
 				(void)voidinit_boolentry(userstate,TIEMUTESTEP_FIELDINDEX_MENU);
 				(void)printprompt_boolentry(userstate,-1);
 				break;
@@ -417,7 +417,7 @@ switch (userstate->menus.type) {
 	case REBOOT_TYPE_MENU:
 		userstate->menus.type=MAIN_TYPE_MENU;
 		if (ch=='y') {
-			keypresses=reboot_global;
+			keypresses=getreboot_action(discover);
 		}
 		break;
 	case POWER_TYPE_MENU:
@@ -475,7 +475,7 @@ switch (userstate->menus.type) {
 			case '4': keypress="InputHDMI4"; break;
 			case '5': keypress="InputAV1"; break;
 			case 8: case 127: keypress="Back"; break;
-			case 'd': case 'D': if (start_discover(d)) GOTOERROR; break;
+			case 'd': case 'D': if (start_discover(discover)) GOTOERROR; break;
 			case 'f': case 'F': keypress="FindRemote"; break;
 			case '-': case '_':
 				(void)volumedown_action(userstate);
@@ -483,8 +483,8 @@ switch (userstate->menus.type) {
 			case '+': case '=':
 				(void)volumeup_action(userstate);
 				break;
-			case 'm': if (sendmute_action(&ign,userstate,d,0)) GOTOERROR; break;
-			case 'M': if (sendmute_action(&ign,userstate,d,1)) GOTOERROR; break;
+			case 'm': if (sendmute_action(&ign,userstate,discover,0)) GOTOERROR; break;
+			case 'M': if (sendmute_action(&ign,userstate,discover,1)) GOTOERROR; break;
 //			case 'p': case 'P': keypress="PowerOff"; break;
 			case 'p': userstate->menus.type=POWER_TYPE_MENU; break;
 			case 'i': case 'I': keypress="Info"; break;
@@ -501,7 +501,7 @@ switch (userstate->menus.type) {
 						case 'c': step=10; break; case 'v': step=5; break;
 						case 'y': step=5; finalkeypress="Select"; break;
 					}
-					if (changemute_action(userstate,d,step,finalkeypress)) GOTOERROR;
+					if (changemute_action(userstate,discover,step,finalkeypress)) GOTOERROR;
 				}
 				break;
 			case 'Z': case 'X': case 'C': case 'V':
@@ -524,7 +524,7 @@ switch (userstate->menus.type) {
 					int isnotsent;
 					if (ch=='Z') (void)reset_automute(&userstate->automute,2*userstate->def_automute);
 					else (void)reset_automute(&userstate->automute,userstate->def_automute);
-					if (sendmute_action(&isnotsent,userstate,d,0)) GOTOERROR;
+					if (sendmute_action(&isnotsent,userstate,discover,0)) GOTOERROR;
 					if (isnotsent) {
 						userstate->menus.type=MAIN_TYPE_MENU;
 						userstate->automute.isactive=0;
@@ -551,14 +551,14 @@ switch (userstate->menus.type) {
 
 if (keypress) {
 	int issent;
-	if (sendkeypress_action(&issent,userstate,d,keypress)) {
+	if (sendkeypress_action(&issent,userstate,discover,keypress)) {
 		fprintf(stderr,"Error sending http request\n");
 	} else {
 		if (issent && isquit2) isquit=1;
 	}
 }
 if (keypresses) {
-	if (sendkeypresses_action(userstate,d,keypresses)) {
+	if (sendkeypresses_action(userstate,discover,keypresses)) {
 		fprintf(stderr,"Error sending http request\n");
 	}
 }
@@ -640,7 +640,7 @@ switch (code) {
 		break;
 	case X_JOYSTICK:
 		if (userstate->menus.jsmode==NAV_JSMODE_MENUS) {
-			if (js->inarow==4) keypresses=reboot2_global;
+			if (js->inarow==4) keypresses=getreboot2_action(discover);
 			else keypress="Home";
 		} else {
 			keypress="Play";
@@ -743,7 +743,7 @@ switch (code) {
 			keypress="Power";
 			js->inarow=0;
 		} else if (js->inarow==5) {
-			keypresses=reboot2_global;
+			keypresses=getreboot2_action(discover);
 			js->inarow=0;
 		} else if (js->inarow>=2) keypress="Home";
 		break;

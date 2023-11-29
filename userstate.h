@@ -19,9 +19,8 @@
 
 struct userstate {
 	struct {
-		int isnomute; // if we don't have VolumeMute, we can similuate mute
+		int isstepmute; // do muting in steps
 		int isquitonpoweroff;
-		unsigned int minvolume; // don't automute below this level
 		uint32_t multicastipv4;
 	} options;
 	struct {

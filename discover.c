@@ -27,9 +27,13 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <ctype.h>
 #define DEBUG
 #include "common/conventions.h"
 #include "common/someutils.h"
+#include "common/blockmem.h"
+#include "common/blockspool.h"
+#include "common/block_hget.h"
 #include "roku.h"
 
 #include "discover.h"
@@ -333,4 +337,94 @@ error:
 void setfilter_discover(struct discover *d, char *sn) {
 d->persist.filter.isfilter=1;
 strncpy(d->persist.filter.id.usn,sn,MAX_USN_ROKU);
+}
+
+static inline int printfilter(FILE *fout, char *str, char *filter) {
+// modifies str
+while (1) {
+	char *temp;
+	temp=strchr(str,'\n');
+	if (temp) *temp=0;
+	if (strstr(str,filter)) {
+		(ignore)fputs(str,fout);
+		(ignore)fputc('\n',fout);
+	}
+	if (!temp) break;
+	*temp='\n';
+	str=temp+1;
+}
+return 0;
+}
+
+int querydeviceinfo_discover(FILE *fout, uint32_t ipv4, unsigned short port, char *filter) {
+struct blockspool blockspool;
+char *flat=NULL;
+unsigned int flatlen;
+
+clear_blockspool(&blockspool);
+if (init_blockspool(&blockspool)) GOTOERROR;
+if (ipv4_hget(&blockspool,NULL,ipv4,port,"/query/device-info",NULL,0,NULL,time(NULL)+10)) GOTOERROR;
+if (exportz_blockspool(&flat,&flatlen,&blockspool)) GOTOERROR;
+
+if (!filter) {
+	fprintf(fout,"Device info (%u.%u.%u.%u):\n", ipv4&0xff, (ipv4>>8)&0xff, (ipv4>>16)&0xff, (ipv4>>24)&0xff);
+	fwrite(flat,flatlen,1,fout);
+	fputc('\n',fout);
+} else {
+	(ignore)printfilter(fout,flat,filter);
+}
+
+free(flat);
+return 0;
+error:
+	iffree(flat);
+	return -1;
+}
+
+static int getdeviceinfo2(struct device_discover *d, uint32_t ipv4, unsigned short port) {
+struct blockspool blockspool;
+char *flat=NULL;
+unsigned int flatlen;
+char *temp,*cursor;
+
+clear_blockspool(&blockspool);
+if (init_blockspool(&blockspool)) GOTOERROR;
+if (ipv4_hget(&blockspool,NULL,ipv4,port,"/query/device-info",NULL,0,NULL,time(NULL)+10)) GOTOERROR;
+if (exportz_blockspool(&flat,&flatlen,&blockspool)) GOTOERROR;
+
+cursor=flat;
+while (1) {
+	temp=strchr(cursor,'\n');
+	if (temp) *temp=0;
+
+	while (isspace(*cursor)) cursor+=1;
+	if (!strncmp(cursor,"<is-tv>",7)) {
+		cursor+=7;
+		if (!strncmp(cursor,"true",4)) {
+			d->istv=1;
+			d->ismute=1;
+		}
+	}
+	
+	if (!temp) break;
+	cursor=temp+1;
+}
+
+d->isset=1;
+
+free(flat);
+return 0;
+error:
+	iffree(flat);
+	return -1;
+}
+
+int getdeviceinfo_discover(struct discover *d) {
+struct device_discover *device;
+if (!d->found.ipv4) GOTOERROR;
+device=&d->found.device;
+if (device->isset) return 0;
+return getdeviceinfo2(device,d->found.ipv4,d->found.port);
+error:
+	return -1;
 }

@@ -41,7 +41,6 @@ fputs("\tconnect to serial number: rokuremote sn:SERIALNUMBER\n",fout);
 fputs("\tconnect to ip: rokuremote ip:IPADDRESS[:port]\n",fout);
 fputs("\tsend keypress: rokuremote --keypress_XXX --keypress_YYY\n",fout);
 fputs("\tdon't run interactively: rokuremote --keypress_XXX --quit\n",fout);
-fputs("\tsimulate mute for streaming devices: --nomute\n",fout);
 fputs("\tset a settings value: --Dname=value\n",fout);
 fputs("\tprint operations: --verbose\n",fout);
 fputs("\tdon't use stdin or stdout: --nostdin\n",fout);
@@ -132,8 +131,8 @@ for (i=1;i<argc;i++) {
 		}
 	} else if (!strcmp(arg,"--verbose") || !strcmp(arg,"-v")) {
 		userstate->terminal.isverbose=1;
-	} else if (!strcmp(arg,"--nomute")) {
-		userstate->options.isnomute=1;
+	} else if (!strcmp(arg,"--stepmute")) {
+		userstate->options.isstepmute=1;
 	} else if (!strncmp(arg,"--joystick_devfile=",19)) {
 		main->isanyjoystick=1;
 		main->joystick.devicefile=arg+19;
@@ -163,6 +162,10 @@ for (i=1;i<argc;i++) {
 		main->isprecmd=1;
 	} else if (!strncmp(arg,"--sleep_",8)) {
 		main->isprecmd=1;
+	} else if (!strncmp(arg,"--query",7)) {
+		main->isprecmd=1;
+		main->isinteractive=0;
+		main->discovertimeout=5;
 	} else if (!strncmp(arg,"-D",2)) {
 		if (setstring_options(userstate,arg+2)) {
 			fprintf(stderr,"%s:%d invalid name or value: %s\n",__FILE__,__LINE__,arg);
@@ -188,3 +191,6 @@ error:
 	return -1;
 }
 
+void setdevice_options(struct userstate *userstate, struct discover *discover) {
+if (!discover->found.device.ismute) userstate->options.isstepmute=1;
+}

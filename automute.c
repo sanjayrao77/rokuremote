@@ -29,11 +29,14 @@
 
 #include "automute.h"
 
-void reset_automute(struct automute *a, unsigned int seconds) {
+void reset_automute(struct automute *a, unsigned int decdelay, unsigned int incdelay, unsigned int full, unsigned int seconds) {
+// decdelay, incdelay in milliseconds
+// full is total number of steps
 a->isactive=1;
 a->start=time(NULL);
 a->stop=a->start+seconds;
 a->muteseconds=-1;
+a->adjust_muteseconds=((incdelay-decdelay)*full)/1000;
 }
 
 int check_automute(int *secleft_out, struct automute *a, int inputfd, int optfd) {
@@ -49,7 +52,7 @@ pollfds[1].events=POLLIN;
 now=time(NULL);
 
 if (a->muteseconds<0) { // assume time between reset_ and first check_ is same as time to unmute
-	a->muteseconds=now-a->start+1;
+	a->muteseconds=now-a->start+1+a->adjust_muteseconds;
 	if (a->muteseconds>0) a->stop-=a->muteseconds;
 }
 

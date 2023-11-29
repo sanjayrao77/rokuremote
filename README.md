@@ -35,7 +35,6 @@ Usage:
 	connect to ip: rokuremote ip:IPADDRESS[:port]
 	send keypress: rokuremote --keypress_XXX --keypress_YYY
 	don't run interactively: rokuremote --keypress_XXX --quit
-	simulate mute for streaming devices: --nomute
 	set a settings value: --Dname=value
 	print operations: --verbose
 	don't use stdin or stdout: --nostdin
@@ -105,15 +104,13 @@ rokuremote --keypress_Power ; rokuremote --keypress_PowerOff --quit
 
 This option will make rokuremote exit instead of listening for user input. It's best used in conjunction with --keypress\_XXX commands.
 
-### --nomute
+### --stepmute
 
-For Roku devices that don't support __VolumeMute__, you can use this option to simulate mute. It will
+For Roku devices that support __VolumeMute__, you can use this option to simulate mute instead. It will
 raise and lower the volume in steps instead of instantly.
 
 You may prefer this mute simulation as it's more gradual. You can tweak the speed with "--Dincvolumedelay=" and
 "--Ddecvolumedelay=" variables.
-
-If you use the automute feature, it will use this muting method.
 
 ### --Dname=value
 
@@ -130,7 +127,7 @@ with "--Dname=value".
 
 Here's an example. It enables mute simulation with a normal volume level of 15.
 ```
-rokuremote --nomute --Dfullvolume=15 --Dincvolumedelay=100 --Ddecvolumedelay=50
+rokuremote --Dfullvolume=15 --Dincvolumedelay=100 --Ddecvolumedelay=50
 ```
 
 You can also specify a multicast ipv4 with "--Dmulticastipv4=IPADDRESS". This IP should be your local ip
@@ -139,6 +136,12 @@ for the interface that shares your Roku device. This is not on the Settings menu
 ### --verbose
 
 This will print more info to the terminal. It's meant for debugging.
+
+### --query
+
+This will print configuration info from the device. It's meant for debugging.
+
+It sends /query/device-info on HTTP GET and prints the output before exiting.
 
 ## Usage
 
@@ -158,8 +161,8 @@ You can decrease the time with 'Z', 'X', 'C' and 'V'.
 To un-mute manually (e.g. if the commercials end early), you can press 'Z' 'Z' to zero out the time
 or press "volume up (=/+)".
 
-Some devices support VolumeMute. If your device doesn't support that, you can use the "--nomute" argument
-to simulate mute/unmute by using multiple volume down/up commands.
+Some devices support VolumeMute. If your device doesn't support that (e.g. streaming sticks), it will
+simulate mute/unmute by using multiple volume down/up commands.
 
 The program is clever enough to stop a mute/unmute simulation if the user specifies the reverse in
 the middle. For example, while it is gradually increasing the volume to simulate an unmute, you
@@ -170,7 +173,7 @@ the unmute.
 
 When the program starts (without --quit) it will print the main menu:
 ```
-./rokuremote --nomute --Dfullvolume=15
+./rokuremote --Dfullvolume=15
 Roku remote, commands:
          a,1                     :   Enter keyboard mode
          Left,Right,Up,Down      :   Send key

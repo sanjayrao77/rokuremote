@@ -16,11 +16,17 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+struct device_discover {
+	int isset; // vars are set
+	int istv; // <is-tv>true</is-tv>
+	int ismute; // device supports VolumeMute
+};
 struct discover {
 	time_t expires,nextpacket;
 	struct {
 		uint32_t ipv4;
 		unsigned short port;
+		struct device_discover device;
 	} found;
 	struct {
 		int fd;
@@ -54,3 +60,4 @@ int sendpacket_discover(struct discover *d);
 int check_discover(int *isalt_out, struct reply_discover *reply_inout, struct discover *d, int altfd);
 void setfilter_discover(struct discover *d, char *sn);
 int readreply_discover(struct reply_discover *reply, struct discover *d);
+int getdeviceinfo_discover(struct discover *d);

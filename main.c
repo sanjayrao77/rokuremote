@@ -135,6 +135,8 @@ if (reply_discover.ipv4) {
 					reply_discover.port,reply_discover.id_roku.usn);
 		}
 		if (userstate->volume.current!=userstate->volume.target) (void)setdirty_volume(userstate);
+		if (getdeviceinfo_discover(discover)) GOTOERROR;
+		(void)setdevice_options(userstate,discover);
 	} else {
 		if (!userstate->terminal.issilent) {
 			(void)reset_printstate(userstate);
@@ -144,7 +146,7 @@ if (reply_discover.ipv4) {
 		}
 	}
 	if (userstate->terminal.isverbose) {
-		(ignore)querydeviceinfo_action(stderr,reply_discover.ipv4,reply_discover.port,"user-device");
+		(ignore)querydeviceinfo_discover(stderr,reply_discover.ipv4,reply_discover.port,"user-device");
 	}
 }
 return 0;
@@ -315,6 +317,11 @@ if (mainoptions.isprecmd) {
 						(reply_discover.ipv4>>0)&0xff, (reply_discover.ipv4>>8)&0xff, (reply_discover.ipv4>>16)&0xff, (reply_discover.ipv4>>24)&0xff,
 						reply_discover.port,reply_discover.id_roku.usn);
 			}
+			if (getdeviceinfo_discover(&discover)) GOTOERROR;
+			(void)setdevice_options(&userstate,&discover);
+#if 0
+		fprintf(stderr,"%s:%d isset:%d  istv:%d\n",__FILE__,__LINE__,discover.found.device.isset,discover.found.device.istv);
+#endif
 			break;
 		}
 		if (discover.expires && (discover.expires <= time(NULL))) {
@@ -336,6 +343,8 @@ if (mainoptions.isprecmd) {
 				unsigned int ui;
 				ui=slowtou(arg+8);
 				usleep(1000*ui);
+			} else if (!strcmp(arg,"--query")) {
+				(ignore)querydeviceinfo_discover(stdout,discover.found.ipv4,discover.found.port,NULL);
 			}
 		}
 	}
