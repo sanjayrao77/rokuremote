@@ -413,6 +413,15 @@ void clear_joystick(struct joystick *js) {
 static struct joystick blank={.fd=-1};
 *js=blank;
 }
+static void reset_joystick(struct joystick *js) {
+js->fd=-1;
+js->inarow=0;
+js->lastcode=0;
+js->bitmask=0;
+js->repeat.code=0;
+js->repeat.ischecking=0;
+js->repeat.isshortdelay=0;
+}
 
 #if 0
 static int noop_getbutton(int *code_out, struct joystick *js) {
@@ -422,9 +431,12 @@ return 0;
 #endif
 
 static void reopen_joystick(struct joystick *js) {
+if (js->fd>=0) {
+	close(js->fd);
+	(void)reset_joystick(js);
+}
 if (!js->device.filename[0]) return;
 if (access(js->device.filename,R_OK)) return;
-ifclose(js->fd);
 js->fd=open(js->device.filename,O_RDONLY);
 #if 0
 WHEREAMI;
